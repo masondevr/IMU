@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
+#include "IMU.h"
 
 /* USER CODE END Includes */
 
@@ -70,10 +71,6 @@ static void MX_LPUART1_UART_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	#define SAD_W 0x50
-	#define SAD_R 0x51
-	uint8_t buf[10];
-	HAL_StatusTypeDef ret;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -97,25 +94,18 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_LPUART1_UART_Init();
+
   /* USER CODE BEGIN 2 */
-  buf[0] = 0x01;
-  int16_t xAcc, yAcc, zAcc;
-  int16_t xGrav, yGrav, zGrav;
-  float xAccMPS, yAccMPS, zAccMPS;
-  float xGravMPS, yGravMPS, zGravMPS;
 
-  buf[0] = 0x3D;
-  ret = HAL_I2C_Master_Transmit(&hi2c1, SAD_W, buf, 1, 1000);
-  ret =  HAL_I2C_Master_Receive(&hi2c1, SAD_R, buf, 1, 1000);
-
-  buf[1] = 0x08;
-  buf[0] = 0x3D;
-
-  ret = HAL_I2C_Master_Transmit(&hi2c1, SAD_W, buf, 2, 1000);
-  ret = HAL_I2C_Master_Transmit(&hi2c1, SAD_W, buf, 1, 1000);
-  ret =  HAL_I2C_Master_Receive(&hi2c1, SAD_R, buf, 1, 1000);
-
-
+  init_IMU(&hi2c1);
+  int16_t veci[3];
+  float vecf[3];
+  enum TestSection {
+	  LIN_ACC_SOLO,	// linear acceleration read test, one at a time
+	  LIN_ACC_VEC,	// linear acceleration read test, all at once
+	  GRAV_SOLO,	// gravity vector read test, one at a time
+	  GRAV_VEC		// gravity vector read test, all at once
+  };
 
   /* USER CODE END 2 */
 
@@ -123,41 +113,55 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  printf("\n*********************************************************\n\r");
 
-	  buf[0] = 0x28;
-	  ret = HAL_I2C_Master_Transmit(&hi2c1, SAD_W, buf, 1, 1000);
-	  ret =  HAL_I2C_Master_Receive(&hi2c1, SAD_R, buf, 6, 1000);
+	  enum TestSection ts = GRAV_VEC;
 
-	  xAcc = buf[0] | ((0xFF & buf[1]) << 8);
-	  yAcc = buf[2] | ((0xFF & buf[3]) << 8);
-	  zAcc = buf[4] | ((0xFF & buf[5]) << 8);
+	  switch(ts) {
+	  	  case LIN_ACC_SOLO:
+	  		  printf("\n\rLinear Acel. data gathered individually\n\r");
+	  		  veci[0] = x_lin_acc_raw(&hi2c1);
+	  		  veci[1] = y_lin_acc_raw(&hi2c1);
+	  		  veci[2] = z_lin_acc_raw(&hi2c1);
+	  		  vecf[0] = x_lin_acc(&hi2c1);
+	  		  vecf[1] = y_lin_acc(&hi2c1);
+	  		  vecf[2] = z_lin_acc(&hi2c1);
+	  		  break;
 
-	  xAccMPS = (xAcc / 32678.0f) * 4;
-	  yAccMPS = (yAcc / 32678.0f) * 4;
-	  zAccMPS = (zAcc / 32678.0f) * 4;
+	  	  case LIN_ACC_VEC:
+	  		  printf("\n\rLinear Acel. data gathered collectively\n\r");
+	  		  lin_acc_vec_raw(&hi2c1, veci);
+			  lin_acc_vec(&hi2c1, vecf);
+	  		  break;
 
-	  buf[0] = 0x2E;
-	  ret = HAL_I2C_Master_Transmit(&hi2c1, SAD_W, buf, 1, 1000);
-	  ret =  HAL_I2C_Master_Receive(&hi2c1, SAD_R, buf, 6, 1000);
+	  	  case GRAV_SOLO:
+	  		  printf("\n\rGravity Vector data gathered individually\n\r");
+	  		  veci[0] = x_grav_raw(&hi2c1);
+			  veci[1] = y_grav_raw(&hi2c1);
+			  veci[2] = z_grav_raw(&hi2c1);
+			  vecf[0] = x_grav(&hi2c1);
+			  vecf[1] = y_grav(&hi2c1);
+			  vecf[2] = z_grav(&hi2c1);
+	  		  break;
 
-	  xGrav = buf[0] | ((0xFF & buf[1]) << 8);
-	  yGrav = buf[2] | ((0xFF & buf[3]) << 8);
-	  zGrav = buf[4] | ((0xFF & buf[5]) << 8);
+	  	  case GRAV_VEC:
+	  		  printf("\n\rGavity Vector data gathered collectively\n\r");
+			  grav_vec_raw(&hi2c1, veci);
+			  grav_vec(&hi2c1, vecf);
+	  		  break;
+	  }
 
-	  xGravMPS = (xGrav / 100.0f);
-	  yGravMPS = (yGrav / 100.0f);
-	  zGravMPS = (zGrav / 100.0f);
+	  /**
+	   * print out raw data in hex and decimal
+	   * as well as float data
+	   */
+	  printf("\n\rRAW DATA:\n\r");
+	  printf("\t%7hX,\t%7hX,\t%7hX\n\r", veci[0], veci[1], veci[2]);
+	  printf("\t(%5hd),\t(%5hd),\t(%5hd)\n\r", veci[0], veci[1], veci[2]);
+	  printf("\n\rFLOAT DATA:\n\r");
+	  printf("\t%*.2f,\t%*.2f,\t%*.2f\n\r", 7, vecf[0], 7, vecf[1], 7, vecf[2]);
 
-	  printf("*linear acceleration does not include gravity*\n\r");
-	  printf("raw linear xAcc: %i \tAcc in m/s^2: %f\n\r", xAcc, xAccMPS);
-	  printf("raw linear yAcc: %i \tAcc in m/s^2: %f\n\r", yAcc, yAccMPS);
-	  printf("raw linear zAcc: %i \tAcc in m/s^2: %f\n\n\r", zAcc, zAccMPS);
-
-	  printf("raw xGrav: %i \txGrav in m/s^2: %f\n\r", xGrav, xGravMPS);
-	  printf("raw yGrav: %i \tyGrav in m/s^2: %f\n\r", yGrav, yGravMPS);
-	  printf("raw zGrav: %i \tzGrav in m/s^2: %f\n\n\r", zGrav, zGravMPS);
-
-	  HAL_Delay(1500);
+	  HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
